@@ -1,0 +1,127 @@
+---
+title: "Practical Machine Learning Project"
+author: "Shahfik Amasha"
+date: "15 October 2015"
+output: html_document
+---
+
+Introduction
+------------
+The goal of this project is to predict the manner in which 6 participants did their exercises. The participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+- Class A: Exactly according to the specification, i.e. the correct way
+- Class B: Throwing the elbows to the front
+- Class C: Lifting the dumbbell only halfway
+- Class D: Lowering the dumbbell only halfway, and
+- Class E: Throwing the hips to the front
+
+The following packages are used in this project. The random seed is also set to ensure reproduceability.
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(rattle)
+set.seed(123)
+```
+
+Load & Transform
+----------------
+1. The datasets to be used for the project are loaded. The testing dataset contains the 20 problems to be submitted. The training dataset will be further partitioned into training and testing datasets (60% and 40% respectively) for modelling.
+
+
+```{r}
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+
+inTrain <- createDataPartition(y=training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+dim(myTraining); dim(myTesting)
+```
+
+2. The following three steps cleans the data to prepare for the model building. The myTraining dataset is used to determine the columns to be removed. The same columns will then be removed from the myTesting and testing
+
+a) Columns which contians more than 90% NA are removed.
+
+```{r}
+naColumns <- sapply(myTraining, function(x) mean(is.na(x))) > 0.9
+myTraining <- myTraining[, naColumns==F]
+myTesting <- myTesting[, naColumns==F]
+testing <- testing[, naColumns==F]
+```
+
+b) NearZeroVariance variables are removed.
+
+```{r}
+nzv <- nearZeroVar(myTraining)
+myTraining <- myTraining[, -nzv]
+myTesting <- myTesting[, -nzv]
+testing <- testing[, -nzv]
+```
+
+c) The first five columns are removed as they are not used for building the model.
+
+```{r}
+myTraining <- myTraining[, -(1:5)]
+myTesting <- myTesting[, -(1:5)]
+testing <- testing[, -(1:5)]
+dim(myTraining); dim(myTesting);dim(testing)
+```
+
+Modelling & Evaluation
+----------------------
+Two modelling techniques will be used, (a) RandomForest, and (b) Decision Tree
+
+**(a) RandomForest**
+The myTraining dataset is modelled using RandomForest with a 3-fold cross-validation.
+
+```{r}
+rfFitControl <- trainControl(method="cv", number=3, verboseIter=F)
+rfFit <- train(classe ~ ., data=myTraining, method="rf", trControl=rfFitControl)
+rfFit$finalModel
+```
+
+The fitted model is then used to predict the column classe in myTesting. The results of the prediction is them compared against the actual values using a confusion matrix. 
+
+```{r}
+rfPreds <- predict(rfFit, newdata=myTesting)
+confusionMatrix(myTesting$classe, rfPreds)
+```
+
+**(b) Decision Tree**
+The myTraining dataset is modelled using a decision tree.
+```{r}
+dtFit <- rpart(classe ~ ., data=myTraining, method="class")
+fancyRpartPlot(dtFit)
+```
+Similarly, the fitted model is then used to predict the column classe in myTesting. The results of the prediction is them compared against the actual values using a confusion matrix. 
+```{r}
+dtPreds <- predict(dtFit, myTesting, type = "class")
+confusionMatrix(dtPreds, myTesting$classe)
+```
+**Conclusion**
+Using RandomForest yielded a better prediction than Decision Tree.
+
+Generating Project Submission Files
+-----------------------------------
+The RandomForest model is used on the 20 problems in the Testing dataset. A file is generated for each problem for submission.
+```{r}
+classPreds <- predict(rfFit, newdata=testing)
+classPreds <- as.character(classPreds)
+
+pml_write_files <- function(x) {
+    n <- length(x)
+    for(i in 1:n) {
+        filename <- paste0("problem_id_", i, ".txt")
+        write.table(x[i], file=filename, quote=F, row.names=F, col.names=F)
+    }
+}
+
+pml_write_files(classPreds)
+```
+
+
+Reference
+---------
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013
